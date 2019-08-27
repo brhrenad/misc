@@ -1,0 +1,140 @@
+#!/usr/bin/python3
+
+import os
+import random
+import requests
+import re
+import time
+import MySQLdb
+
+#Debug
+#from pprint import pprint
+#from code import interact
+
+
+class rndsyslogEntries():
+    data_dir = "rndData"
+    ietf_rfc_link = "https://tools.ietf.org/rfc/rfc{}.txt"
+    ietf_rfc_min_max = (1, 8450)
+
+    def __init__(self, VHostCount):
+        self.SentenceObjects = []
+        self.currentIterIdx = 0
+        
+        random.seed()
+
+        try:
+            os.mkdir(self.data_dir)
+        except FileExistsError:
+            pass
+        
+        self.FileList = [file.path for file in os.scandir(self.data_dir) if file.is_file()]
+
+        while(len(self.FileList) < VHostCount):
+            rfc_id = random.randint(*self.ietf_rfc_min_max)
+            url = ietf_rfc_link.format(rfc_id)
+            filename = data_dir + os.sep + "rfc{}.txt".format(rfc_id)
+
+            try:
+                rfc_fd = open(filename, "x")
+            except FileExistsError:
+                continue
+
+            resp = requests.get(url, headers = {
+                        "Accept": "text/plain",
+                        "Connection": "close" })
+            rfc_fd.write(resp.text)
+            self.FileList.append(filename)
+
+        for filename in self.FileList:
+            self.SentenceObjects.append((os.path.basename(filename), rndsyslogEntries.Sentences(filename)))
+
+    def __len__(self):
+        return len(self.SentenceObjects)
+
+    def __getitem__(self, idx):
+        if(idx < 0 or len(self) < idx):
+            raise IndexError
+
+        return (self.SentenceObjects[idx][0], self.SentenceObjects[idx][1].getRndLine())
+
+    def __iter__(self):
+        self.currentIterIdx = 0
+        return self
+
+    def __next__(self):
+        try:
+            retTuple = self.__getitem__(self.currentIterIdx)     
+            self.currentIterIdx += 1
+        except IndexError:
+            raise StopIteration
+
+        return(retTuple)
+
+
+    class Sentences():
+        def getRndLine(self):
+            if(len(self.bufferdLines) > 0):
+                idx = random.randint(0, len(self.bufferdLines))
+                return(self.bufferdLines[idx])
+            else:
+                return("")
+
+        def __init__(self, filename):
+            self.bufferdLines = []
+            file_fd = open(filename, "r")
+            while True:
+                buf = file_fd.readline()
+                if(len(buf) <= 0):
+                    break
+
+                buf = buf.strip()
+                if len(buf) > 0:
+                    self.bufferdLines.append(buf)
+
+def getValueByChance(Chances, Divergence):
+    summedChances = sum((Chance[1] for Chance in Chances))
+    rnd = random.random() * summedChances
+
+    for Chance in Chances:
+        if(Chance[1] > rnd):
+            break
+        else:
+            rnd -= Chance[1]
+
+    rnd = random.random() * Divergence - (Divergence/2.0)
+    return(Chance[0] + Chance[0]*rnd)
+
+
+if __name__ == "__main__":
+    
+    db_name = "syslog"
+    db_user = "syslog"
+    db_pass = "7f1$GRQ;MMGfhNXyElm"
+
+    db_con = MySQLdb.Connect(
+            user=db_user,
+            passwd=db_pass,
+            db=db_name)
+
+    db_cur = db_con.cursor()
+
+    rndEntries = rndsyslogEntries(6)
+   
+    WaiterDivergence = 0.2 
+    WaiterChances = [(120, 0.1), (60, 0.3), (12, 0.3), (2, 0.2), (0.5, 0.1)]
+    LevelChances = [(0, 0.01), (1, 0.04), (2, 0.06), (3, 0.1), (4, 0.4), (5, 0.2), (6, 0.2)]
+   
+
+    while True:
+        wait = getValueByChance(WaiterChances, WaiterDivergence)
+        time.sleep(wait)
+
+        rndData = random.choice(rndEntries)
+        db_cur.execute("INSERT INTO syslog (timestamp, host, tag, level, msg) VALUES (%s, %s, %s, %s, %s)", 
+                (MySQLdb.Timestamp.now(), rndData[0], "", getValueByChance(LevelChances, 0.0), rndData[1]))
+        db_con.commit()
+
+        #interact(local={**globals(), **locals()})    
+
+
